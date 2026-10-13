@@ -19,8 +19,8 @@ from pypdf.generic import DecodedStreamObject, NameObject, ArrayObject, FloatObj
 HERE = Path(__file__).resolve().parent
 
 FIGURES = {
-    (29, "/Im6"): HERE / "fig6_generators_interventions.pdf",
-    (30, "/Im7"): HERE / "fig7_stale_use.pdf",
+    (29, "/Im6"): HERE / "results_detail.pdf",
+    (30, "/Im7"): HERE / "stale_use.pdf",
 }
 
 

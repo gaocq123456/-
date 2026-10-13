@@ -1,30 +1,13 @@
-"""Shared style for the paper figures: colours, font setup, and the "mosaic"
-fill used for hatched bars (small square tiles stepped along the diagonal,
-instead of plain hatch lines)."""
-
-from pathlib import Path as FilePath
+"""Mosaic fill for hatched bars: small square tiles stepped along the
+diagonal, used instead of plain hatch lines (fully vector in PDF output)."""
 
 import numpy as np
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib import font_manager
 from matplotlib.artist import Artist
 from matplotlib.colors import to_rgb
 from matplotlib.legend_handler import HandlerBase
 from matplotlib.patches import Rectangle
 from matplotlib.path import Path
 from matplotlib.transforms import IdentityTransform, TransformedPath
-
-HERE = FilePath(__file__).resolve().parent
-FONT_FILE = HERE / "fonts" / "ComicNeue-Regular.ttf"
-
-INK = "#1e1e1e"      # titles, legend text
-TEXT = "#555555"     # ticks, axis labels, value labels, spines
-GRID = "#ededed"
-WHITE = "#ffffff"
-LEGEND_FILL = "#8a8a8a"  # "filled: DeepSeek-V4-Pro" legend swatch
 
 # Mosaic tile geometry, in points.  Tiles sit on a grid anchored to the
 # figure origin, so neighbouring bars share one continuous pattern.  Every
@@ -36,16 +19,6 @@ MOSAIC_PERIOD = 3
 # two staircases get a faint checker of the same colour.
 MOSAIC_TINT = 0.7
 MOSAIC_HALFTONE = 0.12
-
-
-def setup_fonts():
-    font_manager.fontManager.addfont(str(FONT_FILE))
-    plt.rcParams.update({
-        # DejaVu Sans supplies the R-code glyphs (filled/half/open circles)
-        # that Comic Neue lacks.
-        "font.family": ["Comic Neue", "DejaVu Sans"],
-        "pdf.fonttype": 42,
-    })
 
 
 def mix(color, bg, t):
@@ -126,6 +99,8 @@ def mosaic_rect(ax, xy, width, height, color, bg, edgecolor, lw, zorder=2):
 
 
 class HandlerMosaic(HandlerBase):
+    """Legend handle drawn with the mosaic fill."""
+
     def __init__(self, color, bg, edgecolor, lw):
         super().__init__()
         self._style = color, bg, edgecolor, lw
@@ -139,18 +114,3 @@ class HandlerMosaic(HandlerBase):
         edge = Rectangle(xy, width, height, facecolor="none",
                          edgecolor=edgecolor, linewidth=lw, transform=trans)
         return [face, MosaicFill(face, color, bg), edge]
-
-
-def add_common_args(ap, name):
-    ap.add_argument("--out-dir", type=FilePath, default=HERE)
-    ap.add_argument("--name", default=name)
-    ap.add_argument("--cell", type=float, default=MOSAIC_CELL,
-                    help="mosaic tile size in points")
-
-
-def save(fig, args):
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    for ext, kw in (("pdf", {}), ("png", {"dpi": 300})):
-        out = args.out_dir / f"{args.name}.{ext}"
-        fig.savefig(out, **kw)
-        print("wrote", out)
