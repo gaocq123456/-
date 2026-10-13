@@ -2,38 +2,23 @@
 interventions I1-I3 (d).
 
 Data come from Table 11 (main results) and Table 12 (interventions).
-Hatched bars (No-history in (a)-(c), GPT-6 Sol in (d)) use a "mosaic" fill:
-small square tiles stepped along the diagonal, instead of plain hatch lines.
+Hatched bars (No-history in (a)-(c), GPT-6 Sol in (d)) use the mosaic fill
+from mosaic_style.py.
 
     python figures/fig6_generators_interventions.py [--out-dir figures]
 """
 
 import argparse
-from pathlib import Path as FilePath
 
 import numpy as np
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib import font_manager
-from matplotlib.artist import Artist
-from matplotlib.colors import to_rgb
-from matplotlib.legend_handler import HandlerBase
 from matplotlib.patches import Rectangle
-from matplotlib.path import Path
-from matplotlib.transforms import IdentityTransform, TransformedPath
 
-HERE = FilePath(__file__).resolve().parent
-FONT_FILE = HERE / "fonts" / "ComicNeue-Regular.ttf"
+from mosaic_style import (INK, TEXT, GRID, WHITE, LEGEND_FILL, MosaicFill,
+                          HandlerMosaic, mosaic_rect, setup_fonts,
+                          add_common_args, save)
 
-# ---------------------------------------------------------------- style
-INK = "#1e1e1e"      # titles, legend text
-TEXT = "#555555"     # ticks, axis labels, value labels, spines
-GRID = "#ededed"
 ERR = "#2b2b2b"
-
-WHITE = "#ffffff"
 GREEN = "#6aaa6e"    # Oracle
 ORANGE = "#f0a35a"   # System-retrieved
 SLATE = "#7a93ad"    # I1
@@ -41,115 +26,9 @@ BLUE = "#5a8bbf"     # I2
 LIGHT_GREEN = "#9ed39a"  # I3
 NOHIST_EDGE = "#9a9a9a"
 NOHIST_BG = "#f2f2f2"
-LEGEND_FILL = "#8a8a8a"
-
-# Mosaic tile geometry, in points.  Tiles sit on a grid anchored to the
-# figure origin, so neighbouring bars share one continuous pattern.  Every
-# PERIOD-th diagonal of the grid is filled, which gives a staircase of
-# squares leaning like "/".
-MOSAIC_CELL = 1.0
-MOSAIC_PERIOD = 3
-# Staircase tiles use a softened tint of the bar colour; the tiles between
-# two staircases get a faint checker of the same colour.
-MOSAIC_TINT = 0.7
-MOSAIC_HALFTONE = 0.12
 
 FIG_W, FIG_H = 453.6, 298.8  # points (6.3 x 4.15 in)
 YMAX = 110
-
-
-def mix(color, bg, t):
-    """Opaque blend: t=1 gives color, t=0 gives bg."""
-    c, b = np.array(to_rgb(color)), np.array(to_rgb(bg))
-    return tuple(b + (c - b) * t)
-
-
-# ---------------------------------------------------------------- mosaic
-class MosaicFill(Artist):
-    """Square-tile diagonal fill clipped to a reference patch.
-
-    The tiles are computed at draw time in device space, so their size is a
-    fixed number of points regardless of the axes scale or output format.
-    """
-
-    cell = MOSAIC_CELL
-
-    def __init__(self, patch, color, bg, period=MOSAIC_PERIOD,
-                 tint=MOSAIC_TINT, halftone=MOSAIC_HALFTONE):
-        super().__init__()
-        self._patch = patch
-        self._color = mix(color, bg, tint)
-        self._half = mix(color, bg, halftone) if halftone else None
-        self._period = period
-        self.set_zorder(patch.get_zorder() + 0.01)
-
-    @staticmethod
-    def _squares(ii, jj, c):
-        x, y = ii * c, jj * c
-        polys = np.stack([np.c_[x, y], np.c_[x + c, y],
-                          np.c_[x + c, y + c], np.c_[x, y + c]], axis=1)
-        return Path.make_compound_path_from_polys(polys)
-
-    def draw(self, renderer):
-        if not self.get_visible():
-            return
-        bb = self._patch.get_window_extent(renderer)
-        if bb.width <= 0 or bb.height <= 0:
-            return
-        c = renderer.points_to_pixels(self.cell)
-        ii, jj = np.meshgrid(np.arange(np.floor(bb.x0 / c), np.ceil(bb.x1 / c)),
-                             np.arange(np.floor(bb.y0 / c), np.ceil(bb.y1 / c)))
-        ii, jj = ii.ravel(), jj.ravel()
-        phase = (ii - jj) % self._period
-
-        gc = renderer.new_gc()
-        gc.set_linewidth(0)
-        gc.set_antialiased(True)
-        gc.set_snap(False)
-        gc.set_clip_rectangle(self._patch.clipbox)
-        gc.set_clip_path(TransformedPath(self._patch.get_path(),
-                                         self._patch.get_transform()))
-        renderer.open_group("mosaic", gid=self.get_gid())
-        if self._half is not None:
-            # checker in the gaps: alternate tiles of the off-diagonals
-            sel = (phase != 0) & ((ii + jj) % 2 == 0)
-            if sel.any():
-                renderer.draw_path(gc, self._squares(ii[sel], jj[sel], c),
-                                   IdentityTransform(), self._half)
-        sel = phase == 0
-        renderer.draw_path(gc, self._squares(ii[sel], jj[sel], c),
-                           IdentityTransform(), self._color)
-        renderer.close_group("mosaic")
-        gc.restore()
-
-
-def mosaic_bar(ax, x, h, width, color, bg, edgecolor, lw, zorder=2):
-    """Bar = background fill, mosaic tiles, then the outline on top."""
-    face = Rectangle((x - width / 2, 0), width, h, facecolor=bg,
-                     edgecolor="none", linewidth=0, zorder=zorder)
-    ax.add_patch(face)
-    tiles = MosaicFill(face, color, bg)
-    ax.add_artist(tiles)
-    tiles.set_clip_box(ax.bbox)
-    ax.add_patch(Rectangle((x - width / 2, 0), width, h, facecolor="none",
-                           edgecolor=edgecolor, linewidth=lw,
-                           zorder=zorder + 0.02))
-
-
-class HandlerMosaic(HandlerBase):
-    def __init__(self, color, bg, edgecolor, lw):
-        super().__init__()
-        self._style = color, bg, edgecolor, lw
-
-    def create_artists(self, legend, orig_handle, xdescent, ydescent,
-                       width, height, fontsize, trans):
-        color, bg, edgecolor, lw = self._style
-        xy = (-xdescent, -ydescent)
-        face = Rectangle(xy, width, height, facecolor=bg, edgecolor="none",
-                         linewidth=0, transform=trans)
-        edge = Rectangle(xy, width, height, facecolor="none",
-                         edgecolor=edgecolor, linewidth=lw, transform=trans)
-        return [face, MosaicFill(face, color, bg), edge]
 
 
 # ---------------------------------------------------------------- data
@@ -217,8 +96,8 @@ def panel_main(ax, title, d, ylabel):
     w = 0.2
     x = np.arange(len(TASKS))
     for xi, v in zip(x, d["nohist"]):
-        mosaic_bar(ax, xi - 1.5 * w, v, w, NOHIST_EDGE, NOHIST_BG,
-                   NOHIST_EDGE, 0.8)
+        mosaic_rect(ax, (xi - 2 * w, 0), w, v, NOHIST_EDGE, NOHIST_BG,
+                    NOHIST_EDGE, 0.8)
     ax.bar(x - 0.5 * w, d["full"], w, facecolor=WHITE, edgecolor=TEXT,
            linewidth=0.9)
     ax.bar(x + 0.5 * w, d["oracle"], w, color=GREEN, edgecolor=GREEN,
@@ -246,7 +125,7 @@ def panel_interventions(ax):
     for xi, (_, col, q, ds, g) in zip(x, INTERVENTIONS):
         ax.bar(xi - w, q, w, facecolor=WHITE, edgecolor=col, linewidth=1.0)
         ax.bar(xi, ds, w, color=col, edgecolor=col, linewidth=1.0)
-        mosaic_bar(ax, xi + w, g, w, col, WHITE, col, 1.0)
+        mosaic_rect(ax, (xi + w / 2, 0), w, g, col, WHITE, col, 1.0)
         for dx, v in ((-w, q), (0, ds), (w, g)):
             ax.text(xi + dx, v + 1.5, f"{v:.1f}", ha="center", va="bottom",
                     fontsize=6.0, color=TEXT)
@@ -273,18 +152,10 @@ def panel_interventions(ax):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out-dir", type=FilePath, default=HERE)
-    ap.add_argument("--name", default="fig6_generators_interventions")
-    ap.add_argument("--cell", type=float, default=MOSAIC_CELL,
-                    help="mosaic tile size in points")
+    add_common_args(ap, "fig6_generators_interventions")
     args = ap.parse_args()
     MosaicFill.cell = args.cell
-
-    font_manager.fontManager.addfont(str(FONT_FILE))
-    plt.rcParams.update({
-        "font.family": "Comic Neue",
-        "pdf.fonttype": 42,
-    })
+    setup_fonts()
 
     fig = plt.figure(figsize=(FIG_W / 72, FIG_H / 72))
 
@@ -316,11 +187,7 @@ def main():
              "s.d. = 0);  decoding temperature 0",
              fontsize=6.0, color=TEXT, ha="left", va="baseline")
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    for ext, kw in (("pdf", {}), ("png", {"dpi": 300})):
-        out = args.out_dir / f"{args.name}.{ext}"
-        fig.savefig(out, **kw)
-        print("wrote", out)
+    save(fig, args)
 
 
 if __name__ == "__main__":
